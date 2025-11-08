@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Thermo Cycles Explorer</title>
+  <link rel="icon" href="semi.png" type="image/x-icon">
+  <style>
+    :root{--panel-bg:#fafafa;--accent:#0b76ef;--muted:#666}
+    body{font-family:Inter,Segoe UI,Roboto,Arial; margin:12px; background:#f4f6fb;color:#111}
+    h1{font-size:20px;margin:6px 0}
+    .author{font-size:20px;color:orange}
+    .app{display:grid;grid-template-columns:320px 1fr;gap:12px}
+    .card{background:var(--panel-bg);border-radius:8px;padding:12px;box-shadow:0 6px 18px rgba(12,20,40,0.05)}
+    .inputs .row{display:flex;align-items:center;margin:8px 0}
+    .inputs label{width:52%;font-size:13px;color:var(--muted)}
+    .inputs input, .inputs select{flex:1;padding:6px 8px;border-radius:6px;border:1px solid #e0e6ef;font-size:13px}
+    .buttons{display:flex;gap:8px;margin-top:8px}
+    button{background:var(--accent);color:#fff;border:none;padding:8px 12px;border-radius:8px;cursor:pointer}
+    .secondary{background:#ddd;color:#111}
+    .results{display:flex;flex-direction:column;gap:10px}
+    .plots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    canvas{background:#fff;border-radius:6px;padding:8px}
+    .wide{grid-column:1/3}
+    pre{white-space:pre-wrap;margin:0;font-size:13px}
+    footer{margin-top:12px;color:var(--muted);font-size:12px}
+    @media(max-width:880px){.app{grid-template-columns:1fr} .plots{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <h1>Thermodynamic Cycles Explorer — (Otto / Diesel / Dual) <b id = "author">[ By Yousef Medhat | To Eng.Nader Magdy | Supervisor : Dr.Ramy Rafaat ]</b></h1>
+  <div class="app">
+    <div class="card inputs">
+      <h2 style="margin:0 0 8px 0">Inputs</h2>
+      <div class="row"><label>Compression ratio r</label><input id="r" type="number" step="0.01" value="8"></div>
+      <div class="row"><label>Cutoff ratio (rho) for Diesel</label><input id="rho" type="number" step="0.01" value="2"></div>
+      <div class="row"><label>Dual parameter rc</label><input id="rc" type="number" step="0.01" value="1.5"></div>
+      <div class="row"><label>Initial Pressure (kPa)</label><input id="P1" type="number" step="0.1" value="101.325"></div>
+      <div class="row"><label>Initial Temp (K)</label><input id="T1" type="number" step="0.1" value="300"></div>
+      <div class="row"><label>Gamma (air)</label><input id="gamma" type="number" step="0.001" value="1.4"></div>
+      <div class="row"><label>Fuel LHV (kJ/kg)</label><input id="LHV" type="number" step="1" value="44000"></div>
+      <div class="row"><label>Equivalence ratio (phi)</label><input id="phi" type="number" step="0.01" value="1"></div>
+
+      <div class="row"><label>Cycle type</label>
+        <select id="cycle">
+          <option value="1">Otto</option>
+          <option value="2">Diesel</option>
+          <option value="3">Dual</option>
+        </select>
+      </div>
+      <div class="row"><label>Mode</label>
+        <select id="mode">
+          <option value="1">Air-Standard</option>
+          <option value="2">Fuel-Air</option>
+        </select>
+      </div>
+
+      <div class="buttons">
+        <button id="calc">Calculate</button>
+        <button id="export" class="secondary">Export CSV</button>
+        <button id="sweep" class="secondary">Run r Sweep</button>
+      </div>
+
+      <div style="margin-top:12px">
+        <strong>Notes</strong>
+        <p style="margin:6px 0 0 0;color:var(--muted);font-size:13px">This is an air‑standard approximation for demonstration — heat inputs for Fuel‑Air mode use a small fuel fraction to scale LHV to kJ/kg air.</p>
+      </div>
+    </div>
+
+    <div class="card results">
+      <div style="display:flex;justify-content:space-between;align-items:center"><strong>Results</strong><div id="meta" style="color:var(--muted);font-size:13px">Ready</div></div>
+      <pre id="resText">Run calculation to see results.</pre>
+
+      <div class="plots">
+        <div>
+          <canvas id="pvChart" width="400" height="240"></canvas>
+        </div>
+        <div>
+          <canvas id="tsChart" width="400" height="240"></canvas>
+        </div>
+        <div class="wide">
+          <canvas id="sweepChart" width="900" height="260"></canvas>
+        </div>
+      </div>
+
+      <footer>Open this file in a browser. Charts powered by Chart.js (CDN). <br/><b> My Uni Code : 211600421 </b></footer>
+    </div>
+  </div>
+
+  <!-- Chart.js UMD build CDN (specific minor version to avoid unexpected breaking changes) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+  <script>
+    // Read input values
+    function readInputs() {
+      return {
+        r: Number(document.getElementById('r').value),
+        rho: Number(document.getElementById('rho').value),
+        rc: Number(document.getElementById('rc').value),
+        P1: Number(document.getElementById('P1').value),
+        T1: Number(document.getElementById('T1').value),
+        gamma: Number(document.getElementById('gamma').value),
+        LHV: Number(document.getElementById('LHV').value),
+        phi: Number(document.getElementById('phi').value),
+        cycle: Number(document.getElementById('cycle').value),
+        mode: Number(document.getElementById('mode').value)
+      };
+    }
+
+    function linspace(a, b, n) {
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        out.push(a + (b - a) * (i / (n - 1)));
+      }
+      return out;
+    }
+
+    // Port of the MATLAB computation into JS with careful parentheses
+    function runCycle(S) {
+      const r = S.r;
+      const rho = S.rho;
+      const rc = S.rc;
+      const P1 = S.P1;
+      const T1 = S.T1;
+      const gamma = S.gamma;
+      const mode = S.mode;
+      const LHV = S.LHV;
+      const phi = S.phi;
+
+      const R = 0.287; // kJ/kg.K
+      const cv = R / (gamma - 1);
+      const cp = gamma * cv;
+
+      let V = [];
+      let P = [];
+      let T = [];
+      let s = [];
+      let Q_in_used = 0;
+      let Q_out = 0;
+      let W_net = 0;
+      let eta = 0;
+
+      if (S.cycle === 1) {
+        // Otto
+        const v1 = 1;
+        const P1_kPa = P1;
+        const T1_K = T1;
+        const T2 = T1_K * Math.pow(r, gamma - 1);
+        const P2 = P1_kPa * Math.pow(T2 / T1_K, gamma / (gamma - 1));
+        const v2 = v1 / r;
+        let Q_in;
+        if (mode === 2) {
+          const mfuel = 1e-2 * phi;
+          Q_in = LHV * mfuel;
+        } else {
+          Q_in = 1000;
+        }
+        const T3 = T2 + Q_in / cv;
+        const v3 = v2;
+        const P3 = P2 * (T3 / T2);
+        const v4 = v1;
+        const T4 = T3 * Math.pow(v3 / v4, gamma - 1);
+        const P4 = P3 * Math.pow(T4 / T3, gamma / (gamma - 1));
+        Q_out = cv * (T4 - T1_K);
+        Q_in_used = cv * (T3 - T2);
+        W_net = Q_in_used - Q_out;
+        eta = Q_in_used > 0 ? W_net / Q_in_used : 0;
+        V = [v1, v2, v3, v4, v1];
+        P = [P1_kPa, P2, P3, P4, P1_kPa];
+        T = [T1_K, T2, T3, T4, T1_K];
+        s = T.map(function (tt) { return cv * Math.log(tt / T1_K); });
+      } else if (S.cycle === 2) {
+        // Diesel
+        const v1 = 1;
+        const P1_kPa = P1;
+        const T1_K = T1;
+        const T2 = T1_K * Math.pow(r, gamma - 1);
+        const P2 = P1_kPa * Math.pow(T2 / T1_K, gamma / (gamma - 1));
+        const v2 = v1 / r;
+        const v3 = rho * v2;
+        const T3 = T2 * rho;
+        const P3 = P2;
+        const v4 = v1;
+        const T4 = T3 * Math.pow(v3 / v4, gamma - 1);
+        const P4 = P3 * Math.pow(T4 / T3, gamma / (gamma - 1));
+        const Q_in_local = cp * (T3 - T2);
+        Q_in_used = Q_in_local;
+        Q_out = cv * (T4 - T1_K);
+        W_net = Q_in_used - Q_out;
+        eta = Q_in_used > 0 ? W_net / Q_in_used : 0;
+        V = [v1, v2, v3, v4, v1];
+        P = [P1_kPa, P2, P3, P4, P1_kPa];
+        T = [T1_K, T2, T3, T4, T1_K];
+        s = T.map(function (tt) { return cv * Math.log(tt / T1_K); });
+      } else if (S.cycle === 3) {
+        // Dual
+        const v1 = 1;
+        const P1_kPa = P1;
+        const T1_K = T1;
+        const T2 = T1_K * Math.pow(r, gamma - 1);
+        const P2 = P1_kPa * Math.pow(T2 / T1_K, gamma / (gamma - 1));
+        const v2 = v1 / r;
+        const alpha = 0.5;
+        let Q_in_total;
+        if (mode === 2) {
+          const mfuel = 1e-2 * phi;
+          Q_in_total = LHV * mfuel;
+        } else {
+          Q_in_total = 1500;
+        }
+        const Qv = alpha * Q_in_total;
+        const Qp = (1 - alpha) * Q_in_total;
+        const v3 = v2 * rc;
+        const T3 = T2 + Qv / cv;
+        const P3 = P2 * (T3 / T2);
+        const T4 = T3 + Qp / cp;
+        const v4 = v3 * (T4 / T3);
+        const T5 = T4 * Math.pow(v4 / v1, gamma - 1);
+        const P5 = P3 * Math.pow(T5 / T4, gamma / (gamma - 1));
+        Q_in_used = Q_in_total;
+        Q_out = cv * (T5 - T1_K);
+        W_net = Q_in_used - Q_out;
+        eta = Q_in_used > 0 ? W_net / Q_in_used : 0;
+        V = [v1, v2, v3, v4, v1];
+        P = [P1_kPa, P2, P3, P5, P1_kPa];
+        T = [T1_K, T2, T3, T4, T1_K];
+        s = T.map(function (tt) { return cv * Math.log(tt / T1_K); });
+      } else {
+        throw new Error('Unknown cycle selection');
+      }
+
+      return { V: V, P: P, T: T, S: s, eta: eta, W_net: W_net, Q_in: Q_in_used, Q_out: Q_out };
+    }
+
+    // Setup charts safely
+    const pvCtx = document.getElementById('pvChart').getContext('2d');
+    const tsCtx = document.getElementById('tsChart').getContext('2d');
+    const sweepCtx = document.getElementById('sweepChart').getContext('2d');
+
+    const pvChart = new Chart(pvCtx, {
+      type: 'line',
+      data: { datasets: [{ label: 'PV', data: [], fill: false, tension: 0.3, pointRadius: 6 }] },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { type: 'linear', title: { display: true, text: 'V (relative)' } },
+          y: { title: { display: true, text: 'P (kPa)' } }
+        }
+      }
+    });
+
+    const tsChart = new Chart(tsCtx, {
+      type: 'line',
+      data: { datasets: [{ label: 'TS', data: [], fill: false, tension: 0.3, pointRadius: 6 }] },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { type: 'linear', title: { display: true, text: 's (relative)' } },
+          y: { title: { display: true, text: 'T (K)' } }
+        }
+      }
+    });
+
+    const sweepChart = new Chart(sweepCtx, {
+      type: 'line',
+      data: { labels: [], datasets: [{ label: 'Efficiency', data: [], fill: false, tension: 0.3, pointRadius: 3 }] },
+      options: {
+        scales: {
+          x: { title: { display: true, text: 'Compression ratio r' } },
+          y: { title: { display: true, text: 'Efficiency' } }
+        }
+      }
+    });
+
+    function showResults(res, S) {
+      const etaPct = (res.eta * 100).toFixed(3);
+      const txt = `Cycle: ${['Otto', 'Diesel', 'Dual'][S.cycle - 1]}
+Mode: ${['Air-Standard', 'Fuel-Air'][S.mode - 1]}
+Efficiency: ${etaPct} %
+Net Work (per unit mass): ${res.W_net.toFixed(2)} kJ/kg
+Q_in: ${res.Q_in.toFixed(2)} kJ/kg
+Q_out: ${res.Q_out.toFixed(2)} kJ/kg`;
+      document.getElementById('resText').textContent = txt;
+      document.getElementById('meta').textContent = new Date().toLocaleString();
+
+      // PV chart data
+      pvChart.data.datasets[0].data = res.V.map(function (v, i) { return { x: v, y: res.P[i] }; });
+      pvChart.update();
+
+      // TS chart data
+      tsChart.data.datasets[0].data = res.S.map(function (si, i) { return { x: si, y: res.T[i] }; });
+      tsChart.update();
+    }
+
+    function exportCSV(res) {
+      const rows = [['Point', 'V_rel', 'P_kPa', 'T_K', 's_rel']];
+      for (let i = 0; i < res.V.length; i++) {
+        rows.push([i + 1, res.V[i], res.P[i], res.T[i], res.S[i]]);
+      }
+const csv = rows.map(function (r) { return r.join(','); }).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'cycle_export_' + new Date().toISOString().replace(/[:.]/g, '') + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function paramSweep(S) {
+      const low = Math.max(1.5, S.r * 0.5);
+      const high = Math.min(30, S.r * 1.8);
+      const rs = linspace(low, high, 25);
+      const etas = rs.map(function (rr) {
+        const S2 = Object.assign({}, S);
+        S2.r = rr;
+        const res = runCycle(S2);
+        return +res.eta;
+      });
+      sweepChart.data.labels = rs;
+      sweepChart.data.datasets[0].data = etas;
+      sweepChart.update();
+    }
+
+    // Button wiring
+    document.getElementById('calc').addEventListener('click', function () {
+      const S = readInputs();
+      const res = runCycle(S);
+      showResults(res, S);
+      paramSweep(S);
+    });
+
+    document.getElementById('export').addEventListener('click', function () {
+      const S = readInputs();
+      const res = runCycle(S);
+      exportCSV(res);
+    });
+
+    document.getElementById('sweep').addEventListener('click', function () {
+      const S = readInputs();
+      paramSweep(S);
+    });
+
+    // initial run
+    document.getElementById('calc').click();
+  </script>
+</body>
+</html>
